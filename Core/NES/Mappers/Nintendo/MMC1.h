@@ -21,6 +21,7 @@ protected:
 	uint64_t _lastWriteCycle = 0;
 
 	bool _forceWramOn = false;
+	bool _isSnrom = false;
 	uint16_t _lastChrReg = 0;
 
 	void ResetBuffer()
@@ -138,7 +139,7 @@ protected:
 		uint8_t extraReg = (_lastChrReg == 0xC000 && _chrMode) ? _chrReg1 : _chrReg0;
 		uint8_t prgBankSelect = 0;
 		if(_prgSize == 0x80000) {
-			//512kb carts use bit 7 of $A000/$C000 to select page
+			//512kb carts use bit 4 of $A000/$C000 to select page
 			//This is used for SUROM (Dragon Warrior 3/4, Dragon Quest 4)
 			prgBankSelect = extraReg & 0x10;
 		}
@@ -161,6 +162,10 @@ protected:
 				RemoveCpuMemoryMapping(0x6000, 0x7FFF);
 			} else {
 				//Everything else - 8kb of work or save ram
+				if(_isSnrom && (extraReg & 0x10)) {
+					//[lab fork] SNROM: CHR register bit 4 (CHR A16, unused with 8KB CHR-RAM) drives the PRG-RAM /CE
+					access = MemoryAccessType::NoAccess;
+				}
 				SetCpuMemoryMapping(0x6000, 0x7FFF, 0, memType, access);
 			}
 		}
@@ -217,6 +222,10 @@ protected:
 
 		//"MMC1A: PRG RAM is always enabled" - Normally these roms should be classified as mapper 155
 		_forceWramOn = (_romInfo.DatabaseInfo.Board.compare("MMC1A") == 0);
+
+		//[lab fork] SNROM = 8KB CHR-RAM + 8KB PRG-RAM + up to 256KB PRG (by database board name, else by those sizes)
+		_isSnrom = _romInfo.DatabaseInfo.Board.find("SNROM") != string::npos ||
+			(_romInfo.DatabaseInfo.Board.empty() && !HasChrRom() && _chrRamSize == 0x2000 && _prgSize <= 0x40000 && _saveRamSize + _workRamSize == 0x2000);
 
 		_lastChrReg = 0xA000;
 
