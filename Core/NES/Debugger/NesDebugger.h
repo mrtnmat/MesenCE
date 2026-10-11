@@ -88,6 +88,12 @@ public:
 
 	void ProcessInstruction();
 
+	//[lab fork] lite mode (#14, MesenServer --debug): keep CDL, banked CDL, call edges, call stack and script
+	//callbacks; skip access counters, the event log, disassembly-cache upkeep, uninit-read warnings, PPU-side
+	//break checks, and CPU break checks while no breakpoint, step or break request is pending
+	bool LabLite = false;
+	__forceinline bool NeedBreakChecks();
+
 	//[lab fork] #9/#10 exports (little-endian records, see MesenServer)
 	string GetCdlCpuMap();
 	string GetCallEdges();

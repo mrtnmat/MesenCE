@@ -447,7 +447,9 @@ void BaseMapper::SelectChrPage(uint16_t slot, uint16_t page, ChrMemoryType memor
 
 uint8_t BaseMapper::GetPowerOnByte(uint8_t defaultValue)
 {
-	if(_console->GetNesConfig().RandomizeMapperPowerOnState) {
+	if(LabPowerOnByte >= 0) {
+		return (uint8_t)LabPowerOnByte;
+	} else if(_console->GetNesConfig().RandomizeMapperPowerOnState) {
 		std::random_device rd;
 		std::mt19937 mt(rd());
 		std::uniform_int_distribution<> dist(0, 255);

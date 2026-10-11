@@ -18,6 +18,9 @@ public:
 	static constexpr uint32_t CycleLength = 10000;
 	static constexpr uint32_t BitsPerSample = 16;
 
+	//[lab fork] true: drop channel deltas and skip mixing/resampling entirely (headless MesenServer; the APU itself still runs)
+	static inline bool LabDisabled = false;
+
 private:
 	static constexpr uint32_t MaxSampleRate = 96000;
 	static constexpr uint32_t MaxSamplesPerFrame = MaxSampleRate / 60 * 4 * 2; //x4 to allow CPU overclocking up to 10x, x2 for panning stereo

@@ -202,6 +202,9 @@ protected:
 public:
 	static constexpr uint32_t NametableSize = 0x400;
 
+	//[lab fork] >= 0: every GetPowerOnByte() returns this value (process-wide; MesenServer --mapper-power-on N)
+	static inline int32_t LabPowerOnByte = -1;
+
 	void Initialize(NesConsole* console, RomData& romData);
 	void InitSpecificMapper(RomData& romData);
 

@@ -78,7 +78,7 @@ void GameDatabase::LoadGameDb(std::istream& db)
 	while(db.good()) {
 		string lineContent;
 		std::getline(db, lineContent);
-		if(lineContent[lineContent.size() - 1] == '\r') {
+		if(!lineContent.empty() && lineContent[lineContent.size() - 1] == '\r') { //[lab fork] guard: empty line read out of bounds
 			lineContent = lineContent.substr(0, lineContent.size() - 1);
 		}
 		if(lineContent.empty() || lineContent[0] == '#') {
@@ -87,6 +87,18 @@ void GameDatabase::LoadGameDb(std::istream& db)
 		dbData.push_back(lineContent);
 	}
 	LoadGameDb(dbData);
+}
+
+bool GameDatabase::LabInitFrom(const string& path)
+{
+	auto lock = _loadLock.AcquireSafe();
+	ifstream db(path, ios::in | ios::binary);
+	if(!db) {
+		return false;
+	}
+	LoadGameDb(db);
+	_initialized = true;
+	return true;
 }
 
 void GameDatabase::InitDatabase()

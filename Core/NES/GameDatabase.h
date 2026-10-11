@@ -27,6 +27,8 @@ private:
 
 public:
 	static void LoadGameDb(std::istream& db);
+	//[lab fork] load MesenNesDB.txt from an explicit path (hosts whose home folder has no DB, e.g. MesenServer); false = not found
+	static bool LabInitFrom(const string& path);
 
 	static void SetGameInfo(uint32_t romCrc, RomData& romData, bool updateRomData, bool forHeaderlessRom);
 	static bool GetiNesHeader(uint32_t romCrc, NesHeader& nesHeader);

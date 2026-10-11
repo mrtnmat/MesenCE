@@ -1,6 +1,10 @@
 //[lab fork] MesenServer: headless, persistent NES emulator process driven over stdin/stdout.
 //
-//  MesenServer.exe ROM [--access observation|full] [--debug] [--home DIR]
+//  MesenServer.exe ROM [--access observation|full] [--debug | --debug-full] [--mapper-power-on N] [--home DIR]
+//
+//--debug: lite NES debugger (CDL, cdlmap, edges, call stack, Lua callbacks; no access counters/event log, see
+//NesDebugger::LabLite). --debug-full: Mesen's whole debugger. --mapper-power-on N: every mapper power-on byte = N
+//(BaseMapper::LabPowerOnByte) instead of the mapper's default.
 //
 //All protocol work runs on the emulation thread, inside INativeHook::OnFrame (a frame boundary,
 //which is also an instruction boundary), so ops can read/write memory and save/load states directly.
@@ -31,6 +35,8 @@
 #include "Core/NES/NesMemoryManager.h"
 #include "Core/NES/NesTypes.h"
 #include "Core/NES/NesDefaultVideoFilter.h"
+#include "Core/NES/NesSoundMixer.h"
+#include "Core/NES/GameDatabase.h"
 #include "Core/NES/Input/NesController.h"
 #include "Core/Debugger/Debugger.h"
 #include "Core/Debugger/CdlManager.h"
@@ -139,6 +145,7 @@ class LabServer : public INativeHook, public IInputProvider
 	Emulator* _emu;
 	bool _full;
 	bool _debug;
+	bool _debugFull;
 
 	NesConsole* _console = nullptr;
 	string _out;
@@ -165,7 +172,7 @@ class LabServer : public INativeHook, public IInputProvider
 	int32_t _scriptId = -1;
 
 public:
-	LabServer(Emulator* emu, bool full, bool debug) : _emu(emu), _full(full), _debug(debug) {}
+	LabServer(Emulator* emu, bool full, bool debug, bool debugFull) : _emu(emu), _full(full), _debug(debug), _debugFull(debugFull) {}
 
 	//---- IInputProvider
 	bool SetInput(BaseControlDevice* device) override
@@ -249,7 +256,12 @@ public:
 			}
 			_emu->RegisterInputProvider(this);
 			if(_debug) {
-				_emu->GetDebugger(true);
+				Debugger* dbg = _emu->GetDebugger(true).GetDebugger();
+				NesDebugger* nesDbg = dbg ? dynamic_cast<NesDebugger*>(dbg->GetCpuDebugger(CpuType::Nes)) : nullptr;
+				if(nesDbg) {
+					nesDbg->LabLite = !_debugFull;
+				}
+				_emu->LabSkipPpuCycle = !_debugFull;
 			}
 			//LoadRom's RewindManager::InitHistory clears MaximumSpeed: set it here, after the load
 			_emu->GetSettings()->SetFlag(EmulationFlags::MaximumSpeed);
@@ -792,12 +804,17 @@ int main(int argc, char* argv[])
 	string home;
 	bool full = false;
 	bool debug = false;
+	bool debugFull = false;
 	for(int i = 1; i < argc; i++) {
 		string a = argv[i];
 		if(a == "--access" && i + 1 < argc) {
 			full = string(argv[++i]) == "full";
 		} else if(a == "--debug") {
 			debug = true;
+		} else if(a == "--debug-full") {
+			debug = debugFull = true;
+		} else if(a == "--mapper-power-on" && i + 1 < argc) {
+			BaseMapper::LabPowerOnByte = std::stoi(argv[++i], nullptr, 0) & 0xFF;
 		} else if(a == "--home" && i + 1 < argc) {
 			home = argv[++i];
 		} else {
@@ -805,7 +822,7 @@ int main(int argc, char* argv[])
 		}
 	}
 	if(rom.empty()) {
-		fprintf(stderr, "usage: MesenServer ROM [--access observation|full] [--debug] [--home DIR]\n");
+		fprintf(stderr, "usage: MesenServer ROM [--access observation|full] [--debug | --debug-full] [--mapper-power-on N] [--home DIR]\n");
 		return 2;
 	}
 	if(debug && !full) {
@@ -831,6 +848,12 @@ int main(int argc, char* argv[])
 	}
 	FolderUtilities::SetHomeFolder(home);
 
+	//the game DB (MesenNesDB.txt) is read from the home folder, which is a fresh dir here: load the one next to the exe
+	string dbPath = FolderUtilities::CombinePath(FolderUtilities::GetFolderName(argv[0]), "MesenNesDB.txt");
+	if(!GameDatabase::LabInitFrom(dbPath)) {
+		fprintf(stderr, "MesenServer: warning: no game database at %s (header-only ROM info)\n", dbPath.c_str());
+	}
+
 	unique_ptr<Emulator> emu(new Emulator());
 	emu->Initialize(false);
 	KeyManager::SetSettings(emu->GetSettings());
@@ -854,8 +877,9 @@ int main(int argc, char* argv[])
 
 	emu->GetBatteryManager()->SetDisabled(true);
 	emu->GetVideoDecoder()->SetDisabled(true);
+	NesSoundMixer::LabDisabled = true;
 
-	LabServer server(emu.get(), full, debug);
+	LabServer server(emu.get(), full, debug, debugFull);
 	emu->SetNativeHook(&server);
 
 	if(!emu->LoadRom((VirtualFile)rom, VirtualFile())) {

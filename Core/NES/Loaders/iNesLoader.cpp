@@ -156,6 +156,10 @@ void iNesLoader::LoadRom(RomData& romData, vector<uint8_t>& romFile, NesHeader* 
 
 	if(!romData.Info.IsNes20Header) {
 		GameDatabase::SetGameInfo(romData.Info.Hash.PrgChrCrc32, romData, databaseEnabled, preloadedHeader != nullptr);
+	} else {
+		//[lab fork] NES 2.0: the header stays authoritative (no UpdateRomData), but fill DatabaseInfo so mappers
+		//can still read DB-only facts such as the chip revision (MMC1A, MMC3A) and board name
+		GameDatabase::SetGameInfo(romData.Info.Hash.PrgChrCrc32, romData, false, preloadedHeader != nullptr);
 	}
 
 	if(romData.Info.System == GameSystem::VsSystem) {

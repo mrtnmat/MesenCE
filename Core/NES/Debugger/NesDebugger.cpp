@@ -108,6 +108,11 @@ void NesDebugger::ResetPrevOpCode()
 	_prevOpCode = 0xFF;
 }
 
+__forceinline bool NesDebugger::NeedBreakChecks()
+{
+	return !LabLite || _step->HasRequest || _step->BreakNeeded != BreakType::None || _breakpointManager->HasBreakpoints() || _debugger->HasBreakRequest();
+}
+
 void NesDebugger::ProcessInstruction()
 {
 	NesCpuState& state = _cpu->GetState();
@@ -167,7 +172,9 @@ void NesDebugger::ProcessInstruction()
 		}
 	}
 
-	_debugger->ProcessBreakConditions(CpuType::Nes, *_step.get(), _breakpointManager.get(), operation, addressInfo);
+	if(NeedBreakChecks()) {
+		_debugger->ProcessBreakConditions(CpuType::Nes, *_step.get(), _breakpointManager.get(), operation, addressInfo);
+	}
 }
 
 void NesDebugger::ProcessRead(uint32_t addr, uint8_t value, MemoryOperationType type)
@@ -175,6 +182,34 @@ void NesDebugger::ProcessRead(uint32_t addr, uint8_t value, MemoryOperationType 
 	AddressInfo addressInfo = _mapper->GetAbsoluteAddress(addr);
 	MemoryOperationInfo operation(addr, value, type, MemoryType::NesMemory);
 	InstructionProgress.LastMemOperation = operation;
+
+	if(LabLite) {
+		//[lab fork] #14: CDL + bank log + break checks only
+		if(type == MemoryOperationType::ExecOpCode) {
+			if(_step->ProcessCpuCycle()) {
+				_debugger->SleepUntilResume(CpuType::Nes, BreakSource::CpuStep, &operation);
+			}
+			return;
+		}
+		if(addressInfo.Type == MemoryType::NesPrgRom && addressInfo.Address >= 0) {
+			if(type == MemoryOperationType::ExecOperand) {
+				_codeDataLogger->SetCode(addressInfo.Address);
+				LogPrgAccess(addressInfo.Address, (uint16_t)addr);
+			} else if(type == MemoryOperationType::DmaRead) {
+				if(_cpu->IsDmcDma()) {
+					_codeDataLogger->SetData<NesCdlFlags::PcmData>(addressInfo.Address);
+				}
+			} else if(type != MemoryOperationType::DummyRead) {
+				_codeDataLogger->SetData(addressInfo.Address);
+				LogPrgAccess(addressInfo.Address, (uint16_t)addr);
+			}
+		}
+		_step->ProcessCpuCycle();
+		if(NeedBreakChecks()) {
+			_debugger->ProcessBreakConditions(CpuType::Nes, *_step.get(), _breakpointManager.get(), operation, addressInfo);
+		}
+		return;
+	}
 
 	if(IsRegister(operation)) {
 		_eventManager->AddEvent(DebugEventType::Register, operation);
@@ -242,6 +277,15 @@ void NesDebugger::ProcessWrite(uint32_t addr, uint8_t value, MemoryOperationType
 	AddressInfo addressInfo = _mapper->GetAbsoluteAddress(addr);
 	MemoryOperationInfo operation(addr, value, type, MemoryType::NesMemory);
 	InstructionProgress.LastMemOperation = operation;
+
+	if(LabLite) {
+		//[lab fork] #14
+		_step->ProcessCpuCycle();
+		if(NeedBreakChecks()) {
+			_debugger->ProcessBreakConditions(CpuType::Nes, *_step.get(), _breakpointManager.get(), operation, addressInfo);
+		}
+		return;
+	}
 
 	if(addressInfo.Address >= 0 && (addressInfo.Type == MemoryType::NesInternalRam || addressInfo.Type == MemoryType::NesWorkRam || addressInfo.Type == MemoryType::NesSaveRam)) {
 		_disassembler->InvalidateCache(addressInfo, CpuType::Nes);
@@ -350,6 +394,9 @@ void NesDebugger::ProcessInterrupt(uint32_t originalPc, uint32_t currentPc, bool
 
 void NesDebugger::ProcessPpuRead(uint16_t addr, uint8_t value, MemoryType memoryType, MemoryOperationType opType)
 {
+	if(LabLite && (!_chrRomCdl || opType != MemoryOperationType::PpuRenderingRead)) {
+		return; //[lab fork] #14: only the CHR-ROM CDL needs PPU reads
+	}
 	MemoryOperationInfo operation(addr, value, MemoryOperationType::Read, memoryType);
 	AddressInfo addressInfo { addr, memoryType };
 	if(DebugUtilities::IsRelativeMemory(memoryType)) {
@@ -358,12 +405,18 @@ void NesDebugger::ProcessPpuRead(uint16_t addr, uint8_t value, MemoryType memory
 	if(addressInfo.Type == MemoryType::NesChrRom && opType == MemoryOperationType::PpuRenderingRead) {
 		_chrRomCdl->SetCode(addressInfo.Address);
 	}
+	if(LabLite) {
+		return; //[lab fork] #14
+	}
 	_debugger->ProcessBreakConditions(CpuType::Nes, *_step.get(), _breakpointManager.get(), operation, addressInfo);
 	_memoryAccessCounter->ProcessMemoryRead(addressInfo, _console->GetMasterClock());
 }
 
 void NesDebugger::ProcessPpuWrite(uint16_t addr, uint8_t value, MemoryType memoryType)
 {
+	if(LabLite) {
+		return; //[lab fork] #14
+	}
 	MemoryOperationInfo operation(addr, value, MemoryOperationType::Write, memoryType);
 	AddressInfo addressInfo { addr, memoryType };
 	if(DebugUtilities::IsRelativeMemory(memoryType)) {

@@ -364,9 +364,12 @@ public:
 		}
 	}
 
+	//[lab fork] #14: true = the debugger gets no per-dot PPU calls (only PPU stepping and GUI viewers use them)
+	bool LabSkipPpuCycle = false;
+
 	template<CpuType type> __forceinline void ProcessPpuCycle()
 	{
-		if(_internalDebugger) {
+		if(_internalDebugger && !LabSkipPpuCycle) {
 			_internalDebugger->ProcessPpuCycle<type>();
 		}
 	}

@@ -68,6 +68,9 @@ void NesSoundMixer::Reset()
 
 void NesSoundMixer::PlayAudioBuffer(uint32_t time)
 {
+	if(LabDisabled) {
+		return; //[lab fork] #15
+	}
 	EndFrame(time);
 
 	int16_t* out = _outputBuffer + (_sampleCount * 2);
@@ -183,7 +186,7 @@ int16_t NesSoundMixer::GetOutputVolume(bool forRightChannel)
 }
 void NesSoundMixer::AddDelta(AudioChannel channel, uint32_t time, int16_t delta)
 {
-	if(delta != 0) {
+	if(delta != 0 && !LabDisabled) {
 		_timestamps.push_back(time);
 		_channelOutput[(int)channel][time] += delta;
 	}

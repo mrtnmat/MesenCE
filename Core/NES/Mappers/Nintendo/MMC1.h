@@ -20,7 +20,8 @@ protected:
 
 	uint64_t _lastWriteCycle = 0;
 
-	bool _forceWramOn = false;
+	//[lab fork] chip revision MMC1A (DB Chip field, or mapper 155): PRG-RAM always on, $E000.4 = PRG A17 bypass
+	bool _isMmc1a = false;
 	bool _isSnrom = false;
 	uint16_t _lastChrReg = 0;
 
@@ -123,7 +124,7 @@ protected:
 		entries.push_back(MapperStateEntry("$A000.0-4", "CHR Bank ($0000)", _chrReg0, MapperStateValueType::Number8));
 		entries.push_back(MapperStateEntry("$C000.0-4", "CHR Bank ($1000)", _chrReg1, MapperStateValueType::Number8));
 		entries.push_back(MapperStateEntry("$E000.0-3", "PRG Bank", _prgReg, MapperStateValueType::Number8));
-		entries.push_back(MapperStateEntry("$E000.4", "WRAM Disabled", _wramDisable));
+		entries.push_back(MapperStateEntry("$E000.4", _isMmc1a ? "PRG A17 Bypass" : "WRAM Disabled", _wramDisable));
 
 		entries.push_back(MapperStateEntry("", "Shift Register", _writeBuffer, MapperStateValueType::Number8));
 		entries.push_back(MapperStateEntry("", "Write Count", _shiftCount, MapperStateValueType::Number8));
@@ -144,7 +145,7 @@ protected:
 			prgBankSelect = extraReg & 0x10;
 		}
 
-		MemoryAccessType access = _wramDisable && !_forceWramOn ? MemoryAccessType::NoAccess : MemoryAccessType::ReadWrite;
+		MemoryAccessType access = _wramDisable && !_isMmc1a ? MemoryAccessType::NoAccess : MemoryAccessType::ReadWrite;
 		PrgMemoryType memType = HasBattery() ? PrgMemoryType::SaveRam : PrgMemoryType::WorkRam;
 		if(_saveRamSize + _workRamSize > 0x4000) {
 			//SXROM, 32kb of save ram
@@ -175,12 +176,16 @@ protected:
 			//"001: 5 Fixed PRG    SEROM, SHROM, SH1ROM use a fixed 32k PRG ROM with no banking support.
 			SelectPrgPage2x(0, 0);
 		} else {
+			//[lab fork] MMC1A: $E000 bit 4 makes bit 3 drive PRG A17 directly, bypassing the fixed bank (nes/docs/hw/mappers.md)
+			bool a17Bypass = _isMmc1a && _wramDisable;
+			uint8_t fixedFirst = a17Bypass ? (_prgReg & 0x08) : 0;
+			uint8_t fixedLast = a17Bypass ? (0x07 | (_prgReg & 0x08)) : 0x0F;
 			if(_prgMode) {
 				if(_slotSelect) {
 					SelectPrgPage(0, _prgReg | prgBankSelect);
-					SelectPrgPage(1, 0x0F | prgBankSelect);
+					SelectPrgPage(1, fixedLast | prgBankSelect);
 				} else {
-					SelectPrgPage(0, 0 | prgBankSelect);
+					SelectPrgPage(0, fixedFirst | prgBankSelect);
 					SelectPrgPage(1, _prgReg | prgBankSelect);
 				}
 			} else {
@@ -218,10 +223,12 @@ protected:
 		ProcessRegisterWrite(0x8000, GetPowerOnByte() | 0x0C); //On powerup: bits 2,3 of $8000 are set (this ensures the $8000 is bank 0, and $C000 is the last bank - needed for SEROM/SHROM/SH1ROM which do no support banking)
 		ProcessRegisterWrite(0xA000, GetPowerOnByte());
 		ProcessRegisterWrite(0xC000, GetPowerOnByte());
-		ProcessRegisterWrite(0xE000, (_romInfo.DatabaseInfo.Board.find("MMC1B") != string::npos ? 0x10 : 0x00)); //WRAM Disable: enabled by default for MMC1B
+		//[lab fork] PRG-RAM powers on enabled on every revision (nesdev: MMC1B "enabled by default", MMC1A "always enabled").
+		//Upstream tested DatabaseInfo.Board for "MMC1B"/"MMC1A": dead code (the revision is in the Chip field), and live it would have disabled MMC1B PRG-RAM.
+		ProcessRegisterWrite(0xE000, 0x00);
 
 		//"MMC1A: PRG RAM is always enabled" - Normally these roms should be classified as mapper 155
-		_forceWramOn = (_romInfo.DatabaseInfo.Board.compare("MMC1A") == 0);
+		_isMmc1a = _isMmc1a || _romInfo.DatabaseInfo.Chip == "MMC1A";
 
 		//[lab fork] SNROM = 8KB CHR-RAM + 8KB PRG-RAM + up to 256KB PRG (by database board name, else by those sizes)
 		_isSnrom = _romInfo.DatabaseInfo.Board.find("SNROM") != string::npos ||
