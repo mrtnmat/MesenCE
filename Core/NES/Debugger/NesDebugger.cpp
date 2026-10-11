@@ -61,6 +61,7 @@ NesDebugger::NesDebugger(Debugger* debugger) : IDebugger(debugger->GetEmulator()
 
 	uint32_t crc32 = CRC32::GetCRC((uint8_t*)_emu->GetMemory(MemoryType::NesPrgRom).Memory, _emu->GetMemory(MemoryType::NesPrgRom).Size);
 	_codeDataLogger.reset(new NesCodeDataLogger(debugger, MemoryType::NesPrgRom, _emu->GetMemory(MemoryType::NesPrgRom).Size, CpuType::Nes, crc32, _chrRomCdl.get()));
+	ResetBankLog();
 
 	string cdlFile;
 	switch(_console->GetRomFormat()) {
@@ -121,9 +122,18 @@ void NesDebugger::ProcessInstruction()
 	if(addressInfo.Address >= 0) {
 		if(addressInfo.Type == MemoryType::NesPrgRom) {
 			_codeDataLogger->SetCode(addressInfo.Address, NesDisUtils::GetOpFlags(_prevOpCode, pc, _prevProgramCounter));
+			LogPrgAccess(addressInfo.Address, pc);
 		}
 		if(needDisassemble) {
 			_disassembler->BuildCache(addressInfo, 0, CpuType::Nes);
+		}
+	}
+
+	switch(_prevOpCode) {
+		case 0x20: case 0x4C: case 0x6C: case 0x60: case 0x40: {
+			AddressInfo from = _mapper->GetAbsoluteAddress(_prevProgramCounter);
+			LogEdge(from, _prevProgramCounter, addressInfo, pc, _prevOpCode);
+			break;
 		}
 	}
 
@@ -184,6 +194,7 @@ void NesDebugger::ProcessRead(uint32_t addr, uint8_t value, MemoryOperationType 
 	} else if(type == MemoryOperationType::ExecOperand) {
 		if(addressInfo.Type == MemoryType::NesPrgRom && addressInfo.Address >= 0) {
 			_codeDataLogger->SetCode(addressInfo.Address);
+			LogPrgAccess(addressInfo.Address, (uint16_t)addr);
 		}
 
 		if(_traceLogger->IsEnabled()) {
@@ -203,6 +214,7 @@ void NesDebugger::ProcessRead(uint32_t addr, uint8_t value, MemoryOperationType 
 			}
 		} else if(operation.Type != MemoryOperationType::DummyRead && addressInfo.Type == MemoryType::NesPrgRom && addressInfo.Address >= 0) {
 			_codeDataLogger->SetData(addressInfo.Address);
+			LogPrgAccess(addressInfo.Address, (uint16_t)addr);
 		}
 
 		if(_traceLogger->IsEnabled()) {
@@ -324,6 +336,7 @@ void NesDebugger::ProcessInterrupt(uint32_t originalPc, uint32_t currentPc, bool
 	if(dest.Type == MemoryType::NesPrgRom && dest.Address >= 0) {
 		_codeDataLogger->SetCode(dest.Address, CdlFlags::SubEntryPoint);
 	}
+	LogEdge(ret, (uint16_t)originalPc, dest, (uint16_t)currentPc, forNmi ? 1 : 2);
 
 	uint8_t originalSp = _cpu->GetState().SP + 3;
 	_prevStackPointer = originalSp;
@@ -551,4 +564,41 @@ void NesDebugger::ProcessInputOverrides(DebugControllerState inputOverrides[8])
 		}
 	}
 	controlManager->RefreshHubState();
+}
+
+void NesDebugger::ResetBankLog()
+{
+	uint32_t size = _emu->GetMemory(MemoryType::NesPrgRom).Size;
+	_cdlCpuAddr.assign(size, 0);
+	_cdlWindows.assign(size, 0);
+	_edges.clear();
+	_edgeKeys.clear();
+}
+
+void NesDebugger::LogEdge(AddressInfo& from, uint16_t fromPc, AddressInfo& to, uint16_t toPc, uint8_t kind)
+{
+	//record: u8 kind (opcode JSR/JMP/RTS/RTI, 1 = NMI, 2 = IRQ), u8 fromType, i32 fromAbs, u16 fromCpu, u8 toType, i32 toAbs, u16 toCpu
+	uint64_t key = 1469598103934665603ULL;
+	auto mix = [&key](uint64_t v) { key = (key ^ v) * 1099511628211ULL; };
+	mix(kind); mix((uint64_t)from.Type); mix((uint32_t)from.Address); mix(fromPc); mix((uint64_t)to.Type); mix((uint32_t)to.Address); mix(toPc);
+	if(!_edgeKeys.insert(key).second) {
+		return;
+	}
+	auto put = [this](const void* p, size_t n) { _edges.insert(_edges.end(), (uint8_t*)p, (uint8_t*)p + n); };
+	uint8_t fromType = (uint8_t)from.Type, toType = (uint8_t)to.Type;
+	put(&kind, 1); put(&fromType, 1); put(&from.Address, 4); put(&fromPc, 2);
+	put(&toType, 1); put(&to.Address, 4); put(&toPc, 2);
+}
+
+string NesDebugger::GetCdlCpuMap()
+{
+	//PRG size x u16 first CPU address (0 = never seen), then PRG size x u8 window mask
+	string s((const char*)_cdlCpuAddr.data(), _cdlCpuAddr.size() * 2);
+	s.append((const char*)_cdlWindows.data(), _cdlWindows.size());
+	return s;
+}
+
+string NesDebugger::GetCallEdges()
+{
+	return string((const char*)_edges.data(), _edges.size());
 }

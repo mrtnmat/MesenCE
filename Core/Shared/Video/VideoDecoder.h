@@ -27,6 +27,7 @@ private:
 	atomic<bool> _stopFlag;
 	uint32_t _frameCount = 0;
 	bool _forceFilterUpdate = false;
+	bool _disabled = false;
 
 	double _lastAspectRatio = 0.0;
 
@@ -54,6 +55,9 @@ public:
 	void TakeScreenshot(std::stringstream& stream);
 
 	void ForceFilterUpdate() { _forceFilterUpdate = true; }
+
+	//[lab fork] headless server: skip filtering/decoding entirely (the PPU output buffer is still produced)
+	void SetDisabled(bool disabled) { _disabled = disabled; }
 
 	uint32_t GetFrameCount();
 	FrameInfo GetBaseFrameInfo(bool removeOverscan);

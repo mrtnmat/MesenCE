@@ -341,18 +341,24 @@ void ScriptingContext::InternalCallMemoryCallback(AddressInfo relAddr, T& value,
 			continue;
 		}
 
+		//[lab fork] callbacks also receive the other address kind as args 3-4:
+		//relative-type callbacks get (absAddress, absMemType), absolute-type ones get (relAddress, relMemType)
+		//(-1 when the address is not mapped)
+		AddressInfo other;
 		int32_t address;
 		if(DebugUtilities::IsRelativeMemory(callback.MemType)) {
 			if(!IsAddressMatch(callback, relAddr)) {
 				continue;
 			}
 			address = relAddr.Address;
+			other = _debugger->GetAbsoluteAddress(relAddr);
 		} else {
 			AddressInfo absAddr = _debugger->GetAbsoluteAddress(relAddr);
 			if(!IsAddressMatch(callback, absAddr)) {
 				continue;
 			}
 			address = absAddr.Address;
+			other = relAddr;
 		}
 
 		if(needTimerReset) {
@@ -364,7 +370,9 @@ void ScriptingContext::InternalCallMemoryCallback(AddressInfo relAddr, T& value,
 		lua_rawgeti(_lua, LUA_REGISTRYINDEX, callback.Reference);
 		lua_pushinteger(_lua, address);
 		lua_pushinteger(_lua, value);
-		if(lua_pcall(_lua, 2, LUA_MULTRET, 0) != 0) {
+		lua_pushinteger(_lua, other.Address);
+		lua_pushinteger(_lua, other.Address < 0 ? -1 : (int)other.Type);
+		if(lua_pcall(_lua, 4, LUA_MULTRET, 0) != 0) {
 			ProcessLuaError();
 		} else {
 			int returnParamCount = lua_gettop(_lua) - top;
@@ -375,6 +383,32 @@ void ScriptingContext::InternalCallMemoryCallback(AddressInfo relAddr, T& value,
 			lua_settop(_lua, top);
 		}
 	}
+}
+
+string ScriptingContext::Eval(string code, bool& ok)
+{
+	//[lab fork] run a chunk in this script's Lua state and return its first result (binary-safe tostring)
+	_timer.Reset();
+	_context = this;
+	lua_setwatchdogtimer(_lua, ScriptingContext::ExecutionCountHook, 1000);
+	LuaApi::SetContext(this);
+	_allowSaveState = true;
+	int top = lua_gettop(_lua);
+	string result;
+	ok = luaL_loadbuffer(_lua, code.c_str(), code.size(), "lua_op") == LUA_OK && lua_pcall(_lua, 0, 1, 0) == LUA_OK;
+	if(ok) {
+		if(!lua_isnil(_lua, -1)) {
+			size_t len = 0;
+			const char* s = luaL_tolstring(_lua, -1, &len);
+			result.assign(s, len);
+		}
+	} else {
+		const char* s = lua_tostring(_lua, -1);
+		result = s ? s : "unknown Lua error";
+	}
+	lua_settop(_lua, top);
+	_allowSaveState = false;
+	return result;
 }
 
 int ScriptingContext::CallEventCallback(EventType type, CpuType cpuType)

@@ -31,7 +31,7 @@ void BatteryManager::SetBatteryRecorder(shared_ptr<IBatteryRecorder> recorder)
 
 void BatteryManager::SaveBattery(string extension, uint8_t* data, uint32_t length)
 {
-	if(_romName.empty()) {
+	if(_romName.empty() || _disabled) {
 		//Battery saves are disabled (used by history viewer)
 		return;
 	}
@@ -45,7 +45,7 @@ void BatteryManager::SaveBattery(string extension, uint8_t* data, uint32_t lengt
 
 vector<uint8_t> BatteryManager::LoadBattery(string extension)
 {
-	if(_romName.empty()) {
+	if(_romName.empty() || _disabled) {
 		//Battery saves are disabled (used by history viewer)
 		return {};
 	}

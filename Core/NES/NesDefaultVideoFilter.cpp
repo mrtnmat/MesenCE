@@ -123,6 +123,11 @@ void NesDefaultVideoFilter::GetFullPalette(uint32_t palette[512], NesConfig& nes
 	}
 }
 
+void NesDefaultVideoFilter::GetDefaultPalette(uint32_t palette[64])
+{
+	memcpy(palette, _ppuPaletteArgb[0], sizeof(_ppuPaletteArgb[0]));
+}
+
 uint32_t NesDefaultVideoFilter::GetDefaultPixelBrightness(uint16_t colorIndex, PpuModel model)
 {
 	uint32_t argbColor = _ppuPaletteArgb[0][_paletteLut[(int)model][colorIndex & 0x3F]];

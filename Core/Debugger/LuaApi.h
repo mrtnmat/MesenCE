@@ -30,6 +30,7 @@ public:
 	static int GetMemorySize(lua_State* lua);
 
 	static int ReadMemory(lua_State* lua);
+	static int ReadRange(lua_State* lua);
 	static int WriteMemory(lua_State* lua);
 	static int ReadMemory16(lua_State* lua);
 	static int WriteMemory16(lua_State* lua);
@@ -105,6 +106,10 @@ public:
 	static int ResetAccessCounters(lua_State* lua);
 
 	static int GetCdlData(lua_State* lua);
+	static int GetCdlDataString(lua_State* lua);
+	static int GetCdlCpuMap(lua_State* lua);
+	static int GetCallEdges(lua_State* lua);
+	static int GetMapperState(lua_State* lua);
 
 private:
 	static FrameInfo InternalGetScreenSize();

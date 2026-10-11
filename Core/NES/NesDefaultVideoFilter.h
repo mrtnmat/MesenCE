@@ -27,6 +27,8 @@ public:
 
 	static void GenerateFullColorPalette(uint32_t paletteBuffer[512], PpuModel model);
 	static void GetFullPalette(uint32_t palette[512], NesConfig& nesCfg, PpuModel model);
+	//[lab fork] the built-in 2C02 palette (= the UI's default UserPalette, which headless hosts must set themselves)
+	static void GetDefaultPalette(uint32_t palette[64]);
 
 	static uint32_t GetDefaultPixelBrightness(uint16_t colorIndex, PpuModel model);
 

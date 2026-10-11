@@ -91,6 +91,19 @@ string ScriptManager::GetScriptLog(int32_t scriptId)
 	return "";
 }
 
+string ScriptManager::Eval(int32_t scriptId, string code, bool& ok)
+{
+	for(unique_ptr<ScriptHost>& script : _scripts) {
+		if(script->GetScriptId() == scriptId) {
+			string result = script->Eval(code, ok);
+			RefreshMemoryCallbackFlags();
+			return result;
+		}
+	}
+	ok = false;
+	return "no such script";
+}
+
 void ScriptManager::ProcessEvent(EventType type, CpuType cpuType)
 {
 	for(unique_ptr<ScriptHost>& script : _scripts) {

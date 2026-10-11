@@ -69,6 +69,7 @@ public:
 	ScriptingContext(Debugger* debugger);
 	~ScriptingContext();
 	bool LoadScript(string scriptName, string path, string scriptContent, Debugger* debugger);
+	string Eval(string code, bool& ok);
 
 	void Log(string message);
 	string GetLog();

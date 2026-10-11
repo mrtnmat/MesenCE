@@ -50,6 +50,21 @@ class NesDebugger final : public IDebugger
 	unique_ptr<NesPpuTools> _ppuTools;
 
 	uint8_t _prevOpCode = 0xFF;
+
+	//[lab fork] banked CDL (#9): per PRG-ROM byte, first CPU address it was executed/read at and a mask of
+	//8KB CPU windows (bit n = $n000*2) it was seen in; call edges (#10) as absolute addresses
+	vector<uint16_t> _cdlCpuAddr;
+	vector<uint8_t> _cdlWindows;
+	vector<uint8_t> _edges;
+	std::unordered_set<uint64_t> _edgeKeys;
+	__forceinline void LogPrgAccess(int32_t prgAddr, uint16_t cpuAddr)
+	{
+		if(_cdlCpuAddr[prgAddr] == 0) {
+			_cdlCpuAddr[prgAddr] = cpuAddr;
+		}
+		_cdlWindows[prgAddr] |= (uint8_t)(1 << (cpuAddr >> 13));
+	}
+	void LogEdge(AddressInfo& from, uint16_t fromPc, AddressInfo& to, uint16_t toPc, uint8_t kind);
 	uint8_t _prevStackPointer = 0;
 	uint32_t _prevProgramCounter = 0;
 
@@ -72,6 +87,11 @@ public:
 	void ResetPrevOpCode() override;
 
 	void ProcessInstruction();
+
+	//[lab fork] #9/#10 exports (little-endian records, see MesenServer)
+	string GetCdlCpuMap();
+	string GetCallEdges();
+	void ResetBankLog();
 	void ProcessRead(uint32_t addr, uint8_t value, MemoryOperationType type);
 	void ProcessWrite(uint32_t addr, uint8_t value, MemoryOperationType type);
 	void ProcessInterrupt(uint32_t originalPc, uint32_t currentPc, bool forNmi) override;

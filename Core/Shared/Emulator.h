@@ -5,6 +5,7 @@
 #include "Core/Debugger/DebugUtilities.h"
 #include "Core/Shared/EmulatorLock.h"
 #include "Core/Shared/Interfaces/IConsole.h"
+#include "Core/Shared/Interfaces/INativeHook.h"
 #include "Core/Shared/Audio/AudioPlayerTypes.h"
 #include "Utilities/Timer.h"
 #include "Utilities/safe_ptr.h"
@@ -70,6 +71,8 @@ private:
 	//Temporarily set to null while executing the secondary console for e.g VS DualSystem or dual GB modes.
 	//This prevents the secondary console from interacting with the debugger (because this does not work properly at the moment)
 	Debugger* _internalDebugger = nullptr;
+
+	INativeHook* _nativeHook = nullptr;
 
 	unique_ptr<thread> _emuThread;
 	unique_ptr<AudioPlayerHud> _audioPlayerHud;
@@ -289,15 +292,32 @@ public:
 		}
 	}
 
+	//[lab fork] native hook (see INativeHook.h)
+	void SetNativeHook(INativeHook* hook) { _nativeHook = hook; }
+	INativeHook* GetNativeHook() { return _nativeHook; }
+	bool HookCpuRead = false;
+	bool HookCpuWrite = false;
+	bool HookPpuRead = false;
+
 	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T> __forceinline void ProcessMemoryRead(uint32_t addr, T& value, MemoryOperationType opType)
 	{
 		if(_internalDebugger) {
 			_internalDebugger->ProcessMemoryRead<type, accessWidth, flags>(addr, value, opType);
 		}
+		if constexpr(type == CpuType::Nes) {
+			if(HookCpuRead) {
+				_nativeHook->OnCpuRead(addr, (uint8_t)value, opType);
+			}
+		}
 	}
 
 	template<CpuType type, uint8_t accessWidth = 1, MemoryAccessFlags flags = MemoryAccessFlags::None, typename T> __forceinline bool ProcessMemoryWrite(uint32_t addr, T& value, MemoryOperationType opType)
 	{
+		if constexpr(type == CpuType::Nes) {
+			if(HookCpuWrite) {
+				_nativeHook->OnCpuWrite(addr, (uint8_t)value, opType);
+			}
+		}
 		if(_internalDebugger) {
 			return _internalDebugger->ProcessMemoryWrite<type, accessWidth, flags>(addr, value, opType);
 		}
@@ -329,6 +349,11 @@ public:
 	{
 		if(_internalDebugger) {
 			_internalDebugger->ProcessPpuRead<type>(addr, value, memoryType, opType);
+		}
+		if constexpr(type == CpuType::Nes) {
+			if(HookPpuRead && memoryType == MemoryType::NesPpuMemory) {
+				_nativeHook->OnPpuRead(addr, (uint8_t)value, opType);
+			}
 		}
 	}
 

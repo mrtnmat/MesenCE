@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "LuaApi.h"
+#include "NES/Debugger/NesDebugger.h"
+#include "NES/NesConsole.h"
+#include "NES/BaseMapper.h"
 #include "Lua/lua.hpp"
 #include "Debugger/LuaCallHelper.h"
 #include "Debugger/Debugger.h"
@@ -91,6 +94,7 @@ int LuaApi::GetLibrary(lua_State* lua)
 		{ "getMemorySize", LuaApi::GetMemorySize },
 
 		{ "read", LuaApi::ReadMemory },
+		{ "readRange", LuaApi::ReadRange },
 		{ "write", LuaApi::WriteMemory },
 		{ "read16", LuaApi::ReadMemory16 },
 		{ "write16", LuaApi::WriteMemory16 },
@@ -146,6 +150,10 @@ int LuaApi::GetLibrary(lua_State* lua)
 		{ "resetAccessCounters", LuaApi::ResetAccessCounters },
 
 		{ "getCdlData", LuaApi::GetCdlData },
+		{ "getCdlDataString", LuaApi::GetCdlDataString },
+		{ "getCdlCpuMap", LuaApi::GetCdlCpuMap },
+		{ "getCallEdges", LuaApi::GetCallEdges },
+		{ "getMapperState", LuaApi::GetMapperState },
 
 		{ "addCheat", LuaApi::AddCheat },
 		{ "clearCheats", LuaApi::ClearCheats },
@@ -1065,6 +1073,104 @@ int LuaApi::ResetAccessCounters(lua_State* lua)
 	checkparams();
 	_debugger->GetMemoryAccessCounter()->ResetCounts();
 	return l.ReturnCount();
+}
+
+int LuaApi::ReadRange(lua_State* lua)
+{
+	//[lab fork] emu.readRange(address, length, memType) -> binary string of `length` bytes
+	LuaCallHelper l(lua);
+	l.ForceParamCount(3);
+	int type = l.ReadInteger();
+	int length = l.ReadInteger();
+	int address = l.ReadInteger();
+	checkminparams(3);
+	MemoryType memType = (MemoryType)(type & 0xFF);
+	errorCond(address < 0, "address must be >= 0");
+	errorCond(length < 0, "length must be >= 0");
+	checkEnum(MemoryType, memType, "invalid memory type");
+	vector<uint8_t> buffer(length);
+	if(length > 0) {
+		_memoryDumper->GetMemoryValues(memType, address, address + length - 1, buffer.data());
+	}
+	lua_pushlstring(lua, (const char*)buffer.data(), buffer.size());
+	return 1;
+}
+
+int LuaApi::GetCdlDataString(lua_State* lua)
+{
+	//[lab fork] emu.getCdlDataString(memType) -> binary string, one CDL flag byte per ROM byte
+	LuaCallHelper l(lua);
+	MemoryType memoryType = (MemoryType)l.ReadInteger();
+	checkEnum(MemoryType, memoryType, "Invalid memory type");
+	checkparams();
+
+	if(!_debugger->GetCdlManager()->GetCodeDataLogger(memoryType)) {
+		error("This memory type does not support CDL data (only some ROM memory types support it)");
+	}
+
+	uint32_t size = _memoryDumper->GetMemorySize(memoryType);
+	vector<uint8_t> cdlData(size);
+	_debugger->GetCdlManager()->GetCdlData(0, size, memoryType, cdlData.data());
+	lua_pushlstring(lua, (const char*)cdlData.data(), cdlData.size());
+	return 1;
+}
+
+static NesDebugger* LuaGetNesDebugger(Debugger* debugger)
+{
+	return dynamic_cast<NesDebugger*>(debugger->GetCpuDebugger(CpuType::Nes));
+}
+
+int LuaApi::GetCdlCpuMap(lua_State* lua)
+{
+	//[lab fork] emu.getCdlCpuMap() -> binary string: PRG size x u16 first CPU address (0 = never), then PRG size x u8 8KB-window mask
+	LuaCallHelper l(lua);
+	checkparams();
+	NesDebugger* dbg = LuaGetNesDebugger(_debugger);
+	errorCond(dbg == nullptr, "NES only");
+	string s = dbg->GetCdlCpuMap();
+	lua_pushlstring(lua, s.data(), s.size());
+	return 1;
+}
+
+int LuaApi::GetCallEdges(lua_State* lua)
+{
+	//[lab fork] emu.getCallEdges() -> binary string of 15-byte records:
+	//u8 kind (JSR/JMP/RTS/RTI opcode, 1 = NMI, 2 = IRQ), u8 fromMemType, i32 fromAbs, u16 fromCpu, u8 toMemType, i32 toAbs, u16 toCpu
+	LuaCallHelper l(lua);
+	checkparams();
+	NesDebugger* dbg = LuaGetNesDebugger(_debugger);
+	errorCond(dbg == nullptr, "NES only");
+	string s = dbg->GetCallEdges();
+	lua_pushlstring(lua, s.data(), s.size());
+	return 1;
+}
+
+int LuaApi::GetMapperState(lua_State* lua)
+{
+	//[lab fork] emu.getMapperState() -> table name -> value (the debugger's mapper state entries)
+	LuaCallHelper l(lua);
+	checkparams();
+	NesConsole* console = dynamic_cast<NesConsole*>(_emu->GetConsoleUnsafe());
+	errorCond(console == nullptr, "NES only");
+	CartridgeState cart = console->GetMapper()->GetState();
+	lua_newtable(lua);
+	for(uint32_t i = 0; i < cart.CustomEntryCount; i++) {
+		MapperStateEntry& e = cart.CustomEntries[i];
+		string name = (char*)e.Name;
+		switch(e.Type) {
+			case MapperStateValueType::None: continue;
+			case MapperStateValueType::String: lua_pushstring(lua, (char*)e.Value); break;
+			case MapperStateValueType::Bool: lua_pushboolean(lua, e.Value[0] != 0); break;
+			default: {
+				int64_t v = 0;
+				for(int j = 7; j >= 0; j--) v = (v << 8) | e.Value[j];
+				lua_pushinteger(lua, v);
+				break;
+			}
+		}
+		lua_setfield(lua, -2, name.c_str());
+	}
+	return 1;
 }
 
 int LuaApi::GetCdlData(lua_State* lua)

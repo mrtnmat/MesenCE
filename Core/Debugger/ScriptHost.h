@@ -22,6 +22,7 @@ public:
 
 	bool LoadScript(string scriptName, string path, string scriptContent, Debugger* debugger);
 	void RefreshMemoryCallbackFlags() { _context->RefreshMemoryCallbackFlags(); }
+	string Eval(string code, bool& ok) { return _context->Eval(code, ok); }
 
 	void ProcessEvent(EventType eventType, CpuType cpuType);
 

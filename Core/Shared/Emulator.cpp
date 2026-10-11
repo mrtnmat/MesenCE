@@ -161,6 +161,10 @@ void Emulator::Run()
 	_frameLimiter.reset(new FrameLimiter(_frameDelay));
 	_lastFrameTimer.Reset();
 
+	if(_nativeHook && !_nativeHook->OnFrame(true)) {
+		_stopFlag = true;
+	}
+
 	while(!_stopFlag) {
 		bool useRunAhead = _settings->GetEmulationConfig().RunAheadFrames > 0 && !_debugger && !_audioPlayerHud && !_rewindManager->IsRewinding() && _settings->GetEmulationSpeed() > 0 && _settings->GetEmulationSpeed() <= 100;
 		if(useRunAhead) {
@@ -170,6 +174,11 @@ void Emulator::Run()
 			_rewindManager->ProcessEndOfFrame();
 			_historyViewer->ProcessEndOfFrame();
 			ProcessSystemActions();
+		}
+
+		if(_nativeHook && !_nativeHook->OnFrame(false)) {
+			_stopFlag = true;
+			break;
 		}
 
 		ProcessAutoSaveState();

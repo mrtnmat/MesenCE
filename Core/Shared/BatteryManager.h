@@ -18,6 +18,7 @@ class BatteryManager
 private:
 	string _romName;
 	bool _hasBattery = false;
+	bool _disabled = false;
 
 	std::weak_ptr<IBatteryProvider> _provider;
 	std::weak_ptr<IBatteryRecorder> _recorder;
@@ -28,6 +29,9 @@ public:
 	void Initialize(string romName, bool setBatteryFlag = false);
 
 	bool HasBattery() { return _hasBattery; }
+
+	//[lab fork] never read or write battery files (deterministic power-on for the headless server)
+	void SetDisabled(bool disabled) { _disabled = disabled; }
 
 	void SetBatteryProvider(shared_ptr<IBatteryProvider> provider);
 	void SetBatteryRecorder(shared_ptr<IBatteryRecorder> recorder);

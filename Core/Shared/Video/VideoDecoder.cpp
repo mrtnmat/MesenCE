@@ -176,7 +176,7 @@ void VideoDecoder::WaitForAsyncFrameDecode()
 
 void VideoDecoder::UpdateFrame(RenderedFrame frame, bool sync, bool forRewind)
 {
-	if(_emu->IsRunAheadFrame()) {
+	if(_emu->IsRunAheadFrame() || _disabled) {
 		return;
 	}
 
